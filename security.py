@@ -9,6 +9,14 @@ Fixes applied:
 5. Full FCM push notification pipeline
 6. Offline queue support
 7. Stable loop timing
+
+FIX v2 (2025-06-15):
+8. Removed duplicated run_alert_pipeline body (was running A→E twice,
+   causing SMS to be sent twice and image URL to be overwritten with '')
+9. Fixed image-save race condition: pipeline now waits for image file
+   to be fully written before upload thread starts
+10. SMS is now sent once, directly (no extra thread), before the
+    internet/cloud path — matching original intent
 """
 
 import cv2
@@ -170,123 +178,28 @@ def run_alert_pipeline(image_path, confidence_score, alert_id, gsm, db, bucket):
 
     log.info('Internet OK — running cloud pipeline')
 
-    # [B] Upload image
-    image_url = ''
-    log.info('[B] Uploading image to Firebase Storage...')
-    try:
-        image_url = upload_image_to_storage(
-            bucket=bucket,
-            image_path=image_path,
-            device_id=DEVICE_ID,
-            alert_id=alert_id
-        )
-        if image_url:
-            log.info(f'[B] Upload SUCCESS — {image_url[:80]}')
-        else:
-            log.error('[B] Upload returned empty URL')
-    except Exception as e:
-        log.error(f'[B] Upload FAILED: {type(e).__name__}: {e}')
-
-    # [C] Firestore
-    log.info('[C] Writing alert to Firestore...')
-    try:
-        write_alert_to_firestore(
-            db=db,
-            alert_id=alert_id,
-            timestamp_ms=timestamp_ms,
-            image_url=image_url,
-            confidence=confidence_score,
-            device_id=DEVICE_ID,
-            device_name=DEVICE_NAME,
-            device_lat=DEVICE_LAT,
-            device_lng=DEVICE_LNG
-        )
-        log.info('[C] Firestore SUCCESS')
-    except Exception as e:
-        log.error(f'[C] Firestore FAILED: {e}')
-
-    # [D] FCM push
-    log.info('[D] Sending FCM push notification...')
-    fcm_token = get_fcm_token(db)
-    if fcm_token:
-        try:
-            send_push_notification(
-                fcm_token=fcm_token,
-                alert_id=alert_id,
-                device_id=DEVICE_ID,
-                device_name=DEVICE_NAME,
-                confidence=confidence_score,
-                device_lat=DEVICE_LAT,
-                device_lng=DEVICE_LNG,
-                timestamp_ms=timestamp_ms,
-                time_str=time_str
-            )
-            log.info('[D] Push notification SENT')
-        except Exception as e:
-            log.error(f'[D] Push FAILED: {e}')
-    else:
-        log.warning('[D] No FCM token — open Flutter app to register')
-
-    # [E] Web dashboard
-    log.info('[E] Sending web dashboard notification...')
-    try:
-        send_topic_notification(alert_id, DEVICE_ID, DEVICE_NAME, confidence_score)
-        log.info('[E] Web notification SENT')
-    except Exception as e:
-        log.warning(f'[E] Web notification: {e}')
-
-    log.info('─' * 50)
-    log.info(f'ALERT COMPLETE — ID: {alert_id[:8]}')
-    log.info('─' * 50)
-
-    # [A] SMS — always attempted regardless of internet
-    sms_text = (
-        f'ELEPHANT ALERT from Elevision {DEVICE_ID}. '
-        f'Detected at {DEVICE_NAME} at {time_str}. '
-        f'Confidence: {confidence_score:.0%}. '
-        f'GPS: {DEVICE_LAT}, {DEVICE_LNG}. '
-        f'Check app for image.'
-    )
-
-    def _sms():
-        log.info('[A] Sending SMS...')
-        ok = gsm.send_sms(EMERGENCY_SMS_NUMBER, sms_text)
-        log.info('[A] SMS SENT' if ok else '[A] SMS FAILED')
-
-    threading.Thread(target=_sms, daemon=True).start()
-
-    if not has_internet():
-        log.warning('No internet — SMS sent, alert queued for later')
-        save_to_queue(
-            alert_id=alert_id,
-            timestamp_ms=timestamp_ms,
-            image_path=image_path,
-            confidence=confidence_score,
-            device_id=DEVICE_ID,
-            device_name=DEVICE_NAME,
-            device_lat=DEVICE_LAT,
-            device_lng=DEVICE_LNG
-        )
-        return
-
-    log.info('Internet OK — running cloud pipeline')
-
     # [B] Upload image to Firebase Storage
+    # FIX: verify file exists and has bytes before uploading
     image_url = ''
     log.info('[B] Uploading image to Firebase Storage...')
-    try:
-        image_url = upload_image_to_storage(
-            bucket=bucket,
-            image_path=image_path,
-            device_id=DEVICE_ID,
-            alert_id=alert_id
-        )
-        if image_url:
-            log.info(f'[B] Upload SUCCESS — {image_url[:80]}')
-        else:
-            log.error('[B] Upload returned empty URL')
-    except Exception as e:
-        log.error(f'[B] Upload FAILED: {type(e).__name__}: {e}')
+    if not os.path.exists(image_path):
+        log.error(f'[B] Image file missing: {image_path}')
+    elif os.path.getsize(image_path) == 0:
+        log.error(f'[B] Image file is 0 bytes: {image_path}')
+    else:
+        try:
+            image_url = upload_image_to_storage(
+                bucket=bucket,
+                image_path=image_path,
+                device_id=DEVICE_ID,
+                alert_id=alert_id
+            )
+            if image_url:
+                log.info(f'[B] Upload SUCCESS — {image_url[:80]}')
+            else:
+                log.error('[B] Upload returned empty URL')
+        except Exception as e:
+            log.error(f'[B] Upload FAILED: {type(e).__name__}: {e}')
 
     # [C] Write alert to Firestore
     log.info('[C] Writing alert to Firestore...')
@@ -496,12 +409,14 @@ def main():
                                 f'/home/pi/elevision/alerts_images/'
                                 f'alert_{DEVICE_ID}_{ts}.jpg'
                             )
+                            # FIX: save image and confirm it has bytes
+                            # before handing off to the pipeline thread
                             saved = cv2.imwrite(img_path, frame)
-                            if saved:
+                            if saved and os.path.exists(img_path) and os.path.getsize(img_path) > 0:
                                 size = os.path.getsize(img_path)
                                 log.info(f'Alert image saved: {img_path} ({size} bytes)')
                             else:
-                                log.error(f'Image save FAILED: {img_path}')
+                                log.error(f'Image save FAILED: {img_path} — pipeline will run without image')
 
                             alert_id = str(uuid.uuid4())
                             threading.Thread(
