@@ -1,0 +1,11 @@
+firebase-key.json
+.env
+alerts_images/
+logs/
+offline_queue/
+models/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+test_upload.jpg
