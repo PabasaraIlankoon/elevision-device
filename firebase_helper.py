@@ -2,14 +2,22 @@
 Firebase Helper for Elevision RW-001
 
 Handles:
-- Image upload to Firebase Storage (with verified URL)
+- Image upload to Cloudinary (free, no credit card required)
 - Alert document write to Firestore
 - FCM push notifications
 - Device status updates
+
+Change log:
+- Replaced Firebase Storage upload with Cloudinary
+- All other functions (Firestore, FCM, device status) unchanged
+- Rest of pipeline (security.py, web dashboard, Flutter app)
+  consumes the URL the same way — no other changes needed
 """
 
 import firebase_admin
-from firebase_admin import credentials, firestore, messaging, storage
+from firebase_admin import credentials, firestore, messaging
+import cloudinary
+import cloudinary.uploader
 import logging
 import time
 import os
@@ -18,14 +26,19 @@ log = logging.getLogger('elevision')
 
 _initialized = False
 _db = None
-_bucket = None
 
 
 def initialize_firebase(key_path, storage_bucket):
-    global _initialized, _db, _bucket
-    if _initialized:
-        return _db, _bucket
+    """
+    Initialize Firebase (Firestore + FCM) and Cloudinary.
+    storage_bucket param kept for compatibility — no longer used for uploads.
+    """
+    global _initialized, _db
 
+    if _initialized:
+        return _db, None  # second return value (bucket) no longer used
+
+    # --- Firebase init ---
     if not os.path.exists(key_path):
         raise FileNotFoundError(
             f'Firebase key not found: {key_path}\n'
@@ -35,19 +48,39 @@ def initialize_firebase(key_path, storage_bucket):
     cred = credentials.Certificate(key_path)
     firebase_admin.initialize_app(cred, {'storageBucket': storage_bucket})
     _db = firestore.client()
-    _bucket = storage.bucket()
     _initialized = True
+    log.info('Firebase (Firestore + FCM) connected successfully')
 
-    log.info('Firebase connected successfully')
-    log.info(f'Storage bucket: {storage_bucket}')
-    return _db, _bucket
+    # --- Cloudinary init ---
+    cloud_name  = os.getenv('CLOUDINARY_CLOUD_NAME')
+    api_key     = os.getenv('CLOUDINARY_API_KEY')
+    api_secret  = os.getenv('CLOUDINARY_API_SECRET')
+
+    if not all([cloud_name, api_key, api_secret]):
+        raise EnvironmentError(
+            'Cloudinary credentials missing from .env\n'
+            'Required: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET'
+        )
+
+    cloudinary.config(
+        cloud_name=cloud_name,
+        api_key=api_key,
+        api_secret=api_secret,
+        secure=True
+    )
+    log.info(f'Cloudinary connected — cloud: {cloud_name}')
+
+    return _db, None  # None = no bucket object needed anymore
 
 
 def upload_image_to_storage(bucket, image_path, device_id, alert_id):
     """
-    Upload alert image to Firebase Storage.
-    Returns the public URL so Flutter app and web dashboard can display it.
+    Upload alert image to Cloudinary.
+    Returns the public HTTPS URL so Flutter app and web dashboard can display it.
     Returns empty string if upload fails.
+
+    Note: 'bucket' param kept for compatibility with security.py call signature
+    — it is not used here.
     """
     if not os.path.exists(image_path):
         log.error(f'Image file does not exist: {image_path}')
@@ -58,22 +91,30 @@ def upload_image_to_storage(bucket, image_path, device_id, alert_id):
         log.error(f'Image file is 0 bytes: {image_path}')
         return ''
 
-    log.info(f'Uploading image ({file_size} bytes) to Firebase Storage...')
+    log.info(f'Uploading image ({file_size} bytes) to Cloudinary...')
 
-    import datetime
-    date_str = datetime.datetime.now().strftime('%Y-%m-%d')
-    storage_path = f'alerts/{date_str}/{device_id}/{alert_id}.jpg'
+    public_id = f'elevision/alerts/{device_id}/{alert_id}'
+    log.info(f'Cloudinary public_id: {public_id}')
 
-    log.info(f'Storage path: {storage_path}')
-
-    blob = bucket.blob(storage_path)
-    blob.upload_from_filename(image_path, content_type='image/jpeg')
-    blob.make_public()
-
-    url = blob.public_url
-    log.info('Image upload SUCCESS')
-    log.info(f'Public URL: {url}')
-    return url
+    try:
+        result = cloudinary.uploader.upload(
+            image_path,
+            public_id=public_id,
+            resource_type='image',
+            format='jpg',
+            overwrite=True
+        )
+        url = result.get('secure_url', '')
+        if url:
+            log.info('Cloudinary upload SUCCESS')
+            log.info(f'Public URL: {url}')
+            return url
+        else:
+            log.error('Cloudinary upload returned no URL')
+            return ''
+    except Exception as e:
+        log.error(f'Cloudinary upload FAILED: {type(e).__name__}: {e}')
+        return ''
 
 
 def write_alert_to_firestore(db, alert_id, timestamp_ms, image_url,
@@ -81,8 +122,7 @@ def write_alert_to_firestore(db, alert_id, timestamp_ms, image_url,
                               device_lat, device_lng):
     """
     Write alert to Firestore.
-    This triggers instant real-time update in Flutter app and web dashboard.
-    Both use snapshots() listeners that automatically receive new documents.
+    Triggers instant real-time update in Flutter app and web dashboard.
     """
     data = {
         'timestampMs': timestamp_ms,
@@ -98,7 +138,7 @@ def write_alert_to_firestore(db, alert_id, timestamp_ms, image_url,
     log.info('Writing alert to Firestore...')
     log.info(f'  alertId:      {alert_id[:8]}...')
     log.info(f'  confidence:   {confidence:.0%}')
-    log.info(f'  imageUrl:     {"SET (" + str(len(image_url)) + " chars)" if image_url else "EMPTY"}')
+    log.info(f'  imageUrl:     {"SET (" + str(len(image_url)) + " chars)" if image_url else "EMPTY — image upload may have failed"}')
 
     db.collection('alerts').document(alert_id).set(data)
 
