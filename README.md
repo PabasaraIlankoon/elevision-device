@@ -37,9 +37,9 @@ instantly visible on the <b>Flutter mobile app</b> and <b>Next.js web dashboard<
 <br>
 
 <p align="center">
-  <img src="images/custom-pcb-hat-top.png" alt="Custom Elevision PCB HAT mounted on Raspberry Pi 4" width="48%">
+  <img src="custom-pcb-hat-top.png" alt="Custom Elevision PCB HAT mounted on Raspberry Pi 4" width="320">
   &nbsp;
-  <img src="images/enclosure-camera-module.png" alt="Field enclosure with IR camera module" width="48%">
+  <img src="enclosure-camera-module.png" alt="Field enclosure with IR camera module" width="320">
 </p>
 
 <p align="center"><sub><b>Left:</b> Custom-designed GSM + power regulation HAT mounted on a Raspberry Pi 4 &nbsp;•&nbsp; <b>Right:</b> Weatherproof field enclosure with IR-illuminated camera module</sub></p>
@@ -79,7 +79,7 @@ flowchart LR
 ### 📲 Real alert, as received on a phone
 
 <p align="center">
-  <img src="images/sms-alert-example.png" alt="Example SMS alerts received from the Elevision device" width="300">
+  <img src="sms-alert-example.png" alt="Example SMS alerts received from the Elevision device" width="220">
 </p>
 
 <p align="center"><sub>Live SMS alerts sent by an <code>ELEVISION_RW-001</code> unit deployed on the Palugaswewa Railway Section, including detection time, confidence score, and GPS coordinates</sub></p>
@@ -92,7 +92,7 @@ flowchart LR
 
 | Repo | Description |
 |:---|:---|
-| 📍 [`elevision-device`](https://github.com/PabasaraIlankoon/elevision-device) | This repo — Raspberry Pi detection unit |
+| 📍 [`elevision-device`](https://github.com/PabasaraIlankoon/elevision-device) | This repo - Raspberry Pi detection unit |
 | 🌐 [`elevision-web`](https://github.com/PabasaraIlankoon/elevision-web) | Next.js web dashboard |
 | 📱 [`elevision-app`](https://github.com/PabasaraIlankoon/elevision-app) | Flutter mobile app |
 
@@ -104,8 +104,8 @@ flowchart LR
 |---|---|
 | **Board** | Raspberry Pi 4 (aarch64, Debian Bookworm) |
 | **Camera** | USB or CSI camera (auto-detected at indices `1, 0, 2, 3`) |
-| **GSM module** | SIM800L — GPIO14 (RX), GPIO15 (TX), GPIO27 (RST) |
-| **LED indicator** | GPIO17 — ON when elephant present |
+| **GSM module** | SIM800L - GPIO14 (RX), GPIO15 (TX), GPIO27 (RST) |
+| **LED indicator** | GPIO17 - ON when elephant present |
 | **Power** | Pi via USB-C, SIM800L via separate 4V regulated supply |
 | **Custom HAT** | Purpose-built PCB integrating SIM800L, voltage regulation, and switching circuitry |
 
@@ -114,10 +114,10 @@ flowchart LR
 A dedicated HAT was designed to cleanly integrate the SIM800L GSM module, buck-converter power regulation, IR illumination control, and battery backup directly on top of the Raspberry Pi.
 
 <p align="center">
-  <img src="images/pcb-schematic-layout.png" alt="Custom Elevision PCB layout designed by Pabasara Ilankoon" width="65%">
+  <img src="pcb-schematic-layout.png" alt="Custom Elevision PCB layout designed by Pabasara Ilankoon" width="420">
 </p>
 
-<p align="center"><sub>PCB layout — SIM800L footprint, Pi/IR/BAT headers, switch header, and buck-converter input/output pads. Designed by Pabasara Ilankoon.</sub></p>
+<p align="center"><sub>PCB layout - SIM800L footprint, Pi/IR/BAT headers, switch header, and buck-converter input/output pads. Designed by Pabasara Ilankoon.</sub></p>
 
 <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.gif" width="100%">
 
@@ -135,7 +135,10 @@ elevision/
 ├── elevision.service     # systemd service file — auto-starts on boot
 ├── requirements.txt      # Python dependencies
 ├── .env.example           # environment variable template (copy to .env and fill in)
-├── images/                # README assets (PCB photos, enclosure, sample alerts)
+├── custom-pcb-hat-top.png      # README asset — PCB HAT on Raspberry Pi
+├── enclosure-camera-module.png # README asset — field enclosure & camera
+├── pcb-schematic-layout.png    # README asset — bare PCB layout
+├── sms-alert-example.png       # README asset — sample SMS alert
 └── .gitignore
 ```
 
@@ -307,11 +310,11 @@ Each detected elephant writes a document to the `alerts` collection:
 
 ## 🎯 Project Context
 
-This device is part of **Elevision** — an elephant detection and early warning system developed as a final year Individual Design Project (IDP). The system aims to reduce human-elephant conflict along railway sections in Sri Lanka by alerting railway operators and nearby communities in real time.
+This device is part of **Elevision** - an elephant detection and early warning system developed as a final year Individual Design Project (IDP). The system aims to reduce human-elephant conflict along railway sections in Sri Lanka by alerting railway operators and nearby communities in real time.
 
 ## 📄 License
 
-Academic project — all rights reserved.
+Academic project - all rights reserved.
 
 <div align="center">
 
